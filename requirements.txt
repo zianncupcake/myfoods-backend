@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+tortoise-orm[asyncpg]
+aerich
+pydantic[email]
+celery[redis]
+redis >= 4.0
+python-dotenv
+requests 
