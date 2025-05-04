@@ -7,3 +7,12 @@ celery[redis]
 redis >= 4.0
 python-dotenv
 requests 
+pydantic-settings    
+tomlkit
+httpx
+h2
+brotli
+dotenv
+jmespath
+parsel
+gevent
