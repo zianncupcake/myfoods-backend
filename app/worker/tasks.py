@@ -86,6 +86,12 @@ async def _async_logic_for_task(source_url: str, task_id: str):
             if data:
                 log.info(f"[Task ID: {task_id}] PARSED DATA RECEIVED:")
                 status = "SUCCESS"
+                try:
+                    # Use json.dumps for potentially large/complex dicts
+                    log.info(json.dumps(data, indent=2))
+                except Exception as log_e:
+                    log.error(f"Error logging full scraped_post_info: {log_e}")
+                    log.info(f"Raw full scraped_post_info: {data}") # Fallback log
             else:
                 log.warning(f"[Task ID: {task_id}] Parsing returned None (check logs above for parsing errors).")
 
