@@ -8,7 +8,7 @@ log = logging.getLogger("uvicorn")
 
 class Settings(BaseSettings):
     database_url: str = os.getenv("DATABASE_URL", "sqlite://./test_local.db")
-    redis_url: str = os.getenv("REDIS_URL", "redis://localhost:6379/0") # Added Redis URL
+    redis_url: str = os.getenv("REDISCLOUD_URL", "redis://localhost:6379/0") # Added Redis URL
 
     class Config:
         env_file = '.env'
