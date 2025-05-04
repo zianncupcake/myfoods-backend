@@ -50,6 +50,16 @@ def parse_post(response: Response) -> Optional[Dict]:
         json_data = json.loads(data_script)
         post_data = json_data["__DEFAULT_SCOPE__"]["webapp.video-detail"]["itemInfo"]["itemStruct"]
 
+        # --- ADDED LOGGING for the full post_data structure ---
+        log.info(f"--- FULL post_data STRUCTURE BEFORE JMESPATH for {response.url} ---")
+        try:
+            log.info(json.dumps(post_data, indent=2)) # Pretty print the full structure
+        except Exception as log_e:
+            log.error(f"Error logging full post_data structure: {log_e}")
+            log.info(f"Raw full post_data structure: {post_data}")
+        log.info(f"--- END FULL post_data STRUCTURE ---")
+        # --- END ADDED LOGGING ---
+
         parsed_post_data = jmespath.search(
             """{
             desc: desc,
