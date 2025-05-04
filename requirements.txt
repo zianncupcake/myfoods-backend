@@ -15,4 +15,4 @@ brotli
 dotenv
 jmespath
 parsel
-gevent
+gunicorn
