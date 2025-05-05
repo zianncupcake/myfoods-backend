@@ -63,6 +63,7 @@ def parse_post(response: Response) -> Optional[Dict]:
         parsed_post_data = jmespath.search(
             """{
             desc: desc,
+            diversificationLabels: diversificationLabels,
             suggestedWords: suggestedWords,
             stickerTexts: stickersOnItem[].stickerText[] | []
             }""",
