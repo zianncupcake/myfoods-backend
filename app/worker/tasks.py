@@ -48,21 +48,17 @@ def parse_post(response: Response) -> Optional[Dict]:
             return None
 
         json_data = json.loads(data_script)
-        post_data = json_data["__DEFAULT_SCOPE__"]["webapp.video-detail"]["itemInfo"]["itemStruct"]
+        post_data = json_data.get("__DEFAULT_SCOPE__", {}).get("webapp.video-detail", {}).get("itemInfo", {}).get("itemStruct")
 
-        # --- ADDED LOGGING for the full post_data structure ---
-        log.info(f"--- FULL post_data STRUCTURE BEFORE JMESPATH for {response.url} ---")
-        try:
-            log.info(json.dumps(post_data, indent=2)) # Pretty print the full structure
-        except Exception as log_e:
-            log.error(f"Error logging full post_data structure: {log_e}")
-            log.info(f"Raw full post_data structure: {post_data}")
-        log.info(f"--- END FULL post_data STRUCTURE ---")
-        # --- END ADDED LOGGING ---
+        if not post_data:
+            log.error(f"Could not find STUFF IN POST DATA")
+            return None
 
         parsed_post_data = jmespath.search(
             """{
             desc: desc,
+            creator: author.uniqueId,
+            imageUrl: video.cover,
             diversificationLabels: diversificationLabels,
             suggestedWords: suggestedWords,
             stickerTexts: stickersOnItem[].stickerText[] | []
@@ -104,6 +100,7 @@ async def _async_logic_for_task(source_url: str, task_id: str):
                     log.error(f"Error logging full scraped_post_info: {log_e}")
                     log.info(f"Raw full scraped_post_info: {data}") # Fallback log
             else:
+                error_message = "No data found"
                 log.warning(f"[Task ID: {task_id}] Parsing returned None (check logs above for parsing errors).")
 
     except HTTPStatusError as e:
