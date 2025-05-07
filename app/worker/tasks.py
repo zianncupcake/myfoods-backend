@@ -221,7 +221,7 @@ def parse_tiktok(response: Response) -> Optional[Dict]:
             creator: author.uniqueId,
             imageUrl: video.cover,
             diversificationLabels: diversificationLabels,
-            suggestedWords: suggestedWords,
+            suggestedWords: suggestedWords
             }""",
             post_data
         )
