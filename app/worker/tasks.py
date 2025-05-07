@@ -2,7 +2,7 @@ import httpx
 import time
 import logging
 import json
-from typing import List, Dict, Optional
+from typing import Dict, Optional
 import asyncio 
 
 import jmespath 
