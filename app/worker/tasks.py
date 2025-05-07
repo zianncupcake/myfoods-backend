@@ -16,12 +16,6 @@ from playwright.async_api import async_playwright, TimeoutError as PlaywrightTim
 
 # SCRAPFLY = ScrapflyClient("scp-live-50e9b6a24f5f4772a1ccb584f02a7656")
 
-# BASE_CONFIG = {
-#     "asp": True, 
-#     "proxy_pool": "public_residential_pool",
-# }
-# INSTAGRAM_DOCUMENT_ID = "8845758582119845"
-
 log = logging.getLogger(__name__)
 
 async def get_httpx_client() -> AsyncClient:
