@@ -158,10 +158,6 @@ async def parse_ig(url: str) -> str:
                 creator = extract_username_slicing(desc)
                 slicedDesc = extract_caption_slicing(desc)
 
-            # log.info(f"DESC {desc}")
-            # log.info(f"IMAGE URL IMAGE URL {imageUrl}")
-            # log.info(f"CREATOR {creator}")
-
             # # --- Retrieve the HTML content ---
             # log.info("Retrieving HTML content...")
             # html_content = await page.content()
