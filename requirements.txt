@@ -16,3 +16,4 @@ dotenv
 jmespath
 parsel
 gunicorn
+playwright
