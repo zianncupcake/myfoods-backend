@@ -149,7 +149,6 @@ async def parse_ig(url: str) -> str:
                 log.info(f"An error occurred while trying to click the close button: {e}")
 
             wait_duration_ms = 5000 
-            log.info(f"Waiting for {wait_duration_ms / 1000} seconds...")
             await page.wait_for_timeout(wait_duration_ms)
 
             desc = await page.locator('meta[property="og:description"]').first.get_attribute("content")
