@@ -17,3 +17,6 @@ jmespath
 parsel
 gunicorn
 playwright
+passlib[bcrypt]
+python-jose[cryptography]
+python-multipart

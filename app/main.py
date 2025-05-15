@@ -1,38 +1,145 @@
-from fastapi import FastAPI, HTTPException, Query, status, WebSocket, WebSocketDisconnect
-# from fastapi.middleware.cors import CORSMiddleware
-from typing import List, Optional
+from fastapi import FastAPI, HTTPException, Query, status, WebSocket, WebSocketDisconnect, APIRouter, Depends
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from typing import List, Optional, Annotated
 import logging
 import asyncio
 
-from . import schemas, crud
+from . import schemas, crud, security
 from .db import lifespan 
 from .worker.tasks import process_url_task 
 from .worker.celery_app import celery 
 from celery.result import AsyncResult
+from .models import User as UserModel
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("uvicorn")
 
 app = FastAPI(
     title="MyFoods Backend API (Async)",
-    description="API to asynchronously process social media URLs and store restaurant data.",
+    description="API to asynchronously process social media URLs and store item data.",
     version="0.2.0",
     lifespan=lifespan
 )
 
-# origins = [
-#     "http://localhost", # Common for web development
-#     "http://localhost:8081", # Default Metro bundler port for Expo Go
-#     "*"
-# ]
+users_router = APIRouter(prefix="/users", tags=["Users"])
+items_router = APIRouter(prefix="/items", tags=["Items"])
+auth_router = APIRouter(prefix="/auth", tags=["Authentication"])
 
-# app.add_middleware(
-#     CORSMiddleware,
-#     allow_origins=origins,
-#     allow_credentials=True, 
-#     allow_methods=["*"],    
-#     allow_headers=["*"],   
-# )
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token")
+
+async def get_current_active_user(token: Annotated[str, Depends(oauth2_scheme)]) -> UserModel:
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    username = security.decode_token_for_username(token, credentials_exception)
+    if username is None: 
+        raise credentials_exception
+    user = await crud.get_user_by_username(username=username)
+    if user is None:
+        raise credentials_exception
+    return user
+
+@auth_router.post("/token", response_model=schemas.Token)
+async def login_for_access_token(form_data: Annotated[OAuth2PasswordRequestForm, Depends()]):
+    user = await crud.authenticate_user(username=form_data.username, password=form_data.password)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token = security.create_access_token(
+        data={"sub": user.username} 
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@users_router.post("/", response_model=schemas.User, status_code=status.HTTP_201_CREATED)
+async def create_new_user(user_in: schemas.UserCreate):
+    db_user = await crud.get_user_by_username(username=user_in.username)
+    if db_user:
+        raise HTTPException(status_code=400, detail="Username already registered")
+    created_user = await crud.create_user(user_data=user_in)
+    if not created_user:
+        raise HTTPException(status_code=500, detail="Could not create user")
+    
+    await created_user.fetch_related('items')
+    return created_user
+
+@users_router.get("/{user_id}", response_model=schemas.User)
+async def read_user(user_id: int):
+    db_user = await crud.get_user_by_id(user_id)
+    if db_user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return db_user
+
+@users_router.get("/{user_id}/items/", response_model=List[schemas.Item])
+async def read_items_for_user(user_id: int):
+    db_user = await crud.get_user_by_id(user_id)
+    if db_user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    items = await crud.get_user_items(user_id=user_id)
+    return items
+
+@users_router.put("/{user_id}", response_model=schemas.User)
+async def update_existing_user(user_id: int, user_in: schemas.UserUpdate):
+    updated_user = await crud.update_user(user_id=user_id, user_data=user_in)
+    if not updated_user:
+        raise HTTPException(status_code=404, detail="User not found or update failed")
+    
+    await updated_user.fetch_related('items')
+    return updated_user
+
+@users_router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_user(user_id: int):
+    deleted = await crud.delete_user(user_id=user_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="User not found")
+    return None 
+
+@items_router.post("/", response_model=schemas.Item, status_code=status.HTTP_201_CREATED)
+async def create_new_item(item_in: schemas.ItemCreate):
+    owner = await crud.get_user_by_id(item_in.user_id)
+    if not owner:
+        raise HTTPException(status_code=404, detail=f"Owner user with id {item_in.user_id} not found.")
+    return await crud.create_item(item_data=item_in, owner_id=item_in.user_id)
+
+@items_router.get("/{item_id}", response_model=schemas.Item)
+async def read_item_by_id(item_id: int):
+    db_item = await crud.get_item_by_id(item_id=item_id)
+    if db_item is None:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return db_item
+
+@items_router.put("/{item_id}", response_model=schemas.Item)
+async def update_existing_item(item_id: int, item_in: schemas.ItemUpdate):
+    db_item = await crud.get_item_by_id(item_id) 
+    if not db_item:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    updated_item = await crud.update_item(
+        item_id=item_id, item_data=item_in, owner_id=db_item.user_id 
+    )
+    if not updated_item:
+        raise HTTPException(status_code=404, detail="Item not found or update failed")
+    return updated_item
+
+@items_router.delete("/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_existing_item(item_id: int):
+    db_item = await crud.get_item_by_id(item_id) 
+    if not db_item:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    deleted = await crud.delete_item(item_id=item_id, owner_id=db_item.user_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Item not found or delete failed")
+    return None
+
+# --- Include Routers in the main app ---
+app.include_router(users_router)
+app.include_router(items_router)
+app.include_router(auth_router)
 
 @app.get("/", tags=["General"])
 async def read_root():
@@ -67,33 +174,6 @@ async def submit_social_media_url_async(submit_request: schemas.SubmitUrlRequest
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to queue URL for processing. Please try again later."
         )
-
-# @app.get("/restaurants",
-#          response_model=List[schemas.RestaurantOut],
-#          tags=["Restaurants"],
-#          summary="Get Saved Restaurants")
-# async def read_restaurants(skip: int = 0, limit: int = Query(default=10, le=100)):
-#     """
-#     Retrieve a list of restaurants stored in the database, with pagination.
-#     """
-#     log.info(f"Fetching restaurants list: skip={skip}, limit={limit}")
-#     restaurants = await crud.get_restaurants(skip=skip, limit=limit)
-#     return restaurants
-
-# @app.get("/restaurants/{restaurant_id}",
-#          response_model=schemas.RestaurantOut,
-#          tags=["Restaurants"],
-#          summary="Get Specific Restaurant")
-# async def read_restaurant(restaurant_id: int):
-#     """
-#     Retrieve details for a specific restaurant by its ID.
-#     """
-#     log.info(f"Fetching restaurant with id: {restaurant_id}")
-#     db_restaurant = await crud.get_restaurant(restaurant_id)
-#     if db_restaurant is None:
-#         log.warning(f"Restaurant with id {restaurant_id} not found for retrieval.")
-#         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Restaurant not found")
-#     return db_restaurant
 
 @app.get("/task_status/{task_id}",
          response_model=schemas.TaskStatusResponse,

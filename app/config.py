@@ -8,7 +8,11 @@ log = logging.getLogger("uvicorn")
 
 class Settings(BaseSettings):
     database_url: str = os.getenv("DATABASE_URL", "sqlite://./test_local.db")
-    redis_url: str = os.getenv("REDISCLOUD_URL", "redis://localhost:6379/0") # Added Redis URL
+    redis_url: str = os.getenv("REDISCLOUD_URL", "redis://localhost:6379/0") 
+
+    secret_key: str = os.getenv("SECRET_KEY", "samplesecretkey")
+    access_token_expire_minutes: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1000"))
+    algorithm: str = "HS256" 
 
     class Config:
         env_file = '.env'
