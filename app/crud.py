@@ -11,6 +11,12 @@ async def get_user_by_username(username: str) -> Optional[UserModel]:
     except DoesNotExist:
         return None
 
+async def get_user_by_id(userId: int) -> Optional[UserModel]:
+    try:
+        return await UserModel.get(id=userId)
+    except DoesNotExist:
+        return None
+
 async def create_user(user_data: UserCreate) -> Optional[UserModel]:
     hashed_password = get_password_hash(user_data.password) 
     try:
@@ -60,8 +66,8 @@ async def delete_user(user_id: int) -> bool:
     except DoesNotExist:
         return False
 
-async def create_item(item_data: ItemCreate, owner_id: int) -> ItemModel:
-    item_obj = await ItemModel.create(**item_data.model_dump(), user_id=owner_id)
+async def create_item(item_data: ItemCreate) -> ItemModel:
+    item_obj = await ItemModel.create(**item_data.model_dump())
     return item_obj
 
 async def get_user_items(user_id: int, skip: int = 0, limit: int = 100) -> List[ItemModel]:

@@ -27,20 +27,6 @@ auth_router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token")
 
-async def get_current_active_user(token: Annotated[str, Depends(oauth2_scheme)]) -> UserModel:
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-    username = security.decode_token_for_username(token, credentials_exception)
-    if username is None: 
-        raise credentials_exception
-    user = await crud.get_user_by_username(username=username)
-    if user is None:
-        raise credentials_exception
-    return user
-
 @auth_router.post("/token", response_model=schemas.Token)
 async def login_for_access_token(form_data: Annotated[OAuth2PasswordRequestForm, Depends()]):
     user = await crud.authenticate_user(username=form_data.username, password=form_data.password)
@@ -66,6 +52,22 @@ async def create_new_user(user_in: schemas.UserCreate):
     
     await created_user.fetch_related('items')
     return created_user
+
+@users_router.get("/me", response_model=schemas.User)
+async def get_current_active_user(token: Annotated[str, Depends(oauth2_scheme)]) -> UserModel:
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    username = security.decode_token_for_username(token, credentials_exception)
+    if username is None: 
+        raise credentials_exception
+    user = await crud.get_user_by_username(username=username)
+    if user is None:
+        raise credentials_exception
+    await user.fetch_related('items')
+    return user
 
 @users_router.get("/{user_id}", response_model=schemas.User)
 async def read_user(user_id: int):
@@ -103,7 +105,7 @@ async def create_new_item(item_in: schemas.ItemCreate):
     owner = await crud.get_user_by_id(item_in.user_id)
     if not owner:
         raise HTTPException(status_code=404, detail=f"Owner user with id {item_in.user_id} not found.")
-    return await crud.create_item(item_data=item_in, owner_id=item_in.user_id)
+    return await crud.create_item(item_data=item_in)
 
 @items_router.get("/{item_id}", response_model=schemas.Item)
 async def read_item_by_id(item_id: int):
