@@ -20,6 +20,7 @@ class ItemCreate(ItemBase):
 class ItemUpdate(BaseModel): 
     title: Optional[str] = None
     source_url: Optional[HttpUrl] = None
+    image_url: Optional[HttpUrl] = None
     notes: Optional[str] = None
     categories: Optional[List[str]] = None
     tags: Optional[List[str]] = None
