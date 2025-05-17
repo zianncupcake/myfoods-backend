@@ -15,7 +15,6 @@ class User(Model):
 
 class Item(Model):
     id = fields.IntField(pk=True)
-    title = fields.CharField(max_length=255)
     source_url = fields.TextField(null=True) 
     image_url = fields.TextField(null=True) 
     notes = fields.TextField(null=True)

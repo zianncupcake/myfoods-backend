@@ -5,8 +5,8 @@ from datetime import datetime
 # --- Item Schemas ---
 # 1. Base Schema: Common attributes
 class ItemBase(BaseModel):
-    title: str
     source_url: Optional[HttpUrl] = None
+    image_url: Optional[HttpUrl] = None
     notes: Optional[str] = None
     categories: List[str] = Field(default_factory=list)
     tags: List[str] = Field(default_factory=list)
@@ -16,9 +16,8 @@ class ItemBase(BaseModel):
 class ItemCreate(ItemBase):
     user_id: int 
 
-# 3. Update Schema: Attributes allowed on update (all optional for PATCH)
+# 3. Update Schema: Attributes allowed on update (alls optional for PATCH)
 class ItemUpdate(BaseModel): 
-    title: Optional[str] = None
     source_url: Optional[HttpUrl] = None
     image_url: Optional[HttpUrl] = None
     notes: Optional[str] = None
