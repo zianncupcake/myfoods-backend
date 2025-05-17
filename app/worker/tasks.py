@@ -12,8 +12,7 @@ from .celery_app import celery
 
 # from urllib.parse import quote
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
-
-# SCRAPFLY = ScrapflyClient("scp-live-50e9b6a24f5f4772a1ccb584f02a7656")
+from ..services.r2_uploader import upload_image_from_url_to_r2 
 
 log = logging.getLogger(__name__)
 
@@ -182,10 +181,6 @@ async def parse_ig(url: str) -> str:
         return html_content
 
 def parse_tiktok(response: Response) -> Optional[Dict]:
-    """
-    Parses hidden post data from TikTok HTML response using XPath and JMESPath.
-    Returns extracted data dict or None if parsing fails.
-    """
     log.debug(f"Attempting to parse response for URL: {response.url}")
     # if response.status_code != 200:
     #     log.error(f"Request failed with status {response.status_code} for {response.url}. Cannot parse.")
@@ -197,16 +192,9 @@ def parse_tiktok(response: Response) -> Optional[Dict]:
     try:
         selector = Selector(response.text)
         data_script = selector.xpath("//script[@id='__UNIVERSAL_DATA_FOR_REHYDRATION__']/text()").get()
-        # if not data_script:
-        #     log.error(f"Could not find script tag '__UNIVERSAL_DATA_FOR_REHYDRATION__' in HTML for {response.url}")
-        #     return None
 
         json_data = json.loads(data_script)
         post_data = json_data.get("__DEFAULT_SCOPE__", {}).get("webapp.video-detail", {}).get("itemInfo", {}).get("itemStruct")
-
-        # if not post_data:
-        #     log.error(f"Could not find STUFF IN POST DATA")
-        #     return None
 
         parsed_post_data = jmespath.search(
             """{
@@ -247,15 +235,35 @@ async def _async_logic_for_task(source_url: str, task_id: str):
             else:
                 data = await parse_ig(source_url)
 
-
             if data:
                 log.info(f"[Task ID: {task_id}] PARSED DATA RECEIVED:")
-                status = "SUCCESS"
+
+                # --- Integrate R2 Image Upload ---
+                image_url = data.get("imageUrl")
+                if image_url:
+                    r2_object_prefix = f"images/{task_id}" 
+                    
+                    log.info(f"[Task ID: {task_id}] Attempting to upload image from {image_url} to R2.")
+                    try:
+                        image_upload_info = await upload_image_from_url_to_r2(
+                            image_url,
+                            desired_object_key_prefix=r2_object_prefix
+                        )
+                        log.info(f"[Task ID: {task_id}] Image upload to R2 successful: {image_upload_info}")
+                        data["r2ImageUrl"] = image_upload_info.get("public_url")
+                        status = "SUCCESS" # Full success if image upload also worked
+                    except Exception as r2_e:
+                        log.error(f"[Task ID: {task_id}] R2 image upload failed: {r2_e}", exc_info=True)
+                        error_message = f"Image upload failed: {str(r2_e)[:100]}"
+                        parsed_content_data["r2_image_error"] = error_message
+                else:
+                    log.info(f"[Task ID: {task_id}] No imageUrl found in parsed data.")
+
                 try:
                     log.info("success")
                 except Exception as log_e:
                     log.error(f"Error logging full scraped_post_info: {log_e}")
-                    log.info(f"Raw full scraped_post_info: {data}") # Fallback log
+                    log.info(f"Raw full scraped_post_info: {data}") 
             else:
                 error_message = "No data found"
                 log.warning(f"[Task ID: {task_id}] Parsing returned None (check logs above for parsing errors).")
