@@ -70,6 +70,12 @@ async def create_item(item_data: ItemCreate) -> ItemModel:
     item_obj = await ItemModel.create(**item_data.model_dump())
     return item_obj
 
+async def get_item_by_id(item_id: int) -> Optional[UserModel]:
+    try:
+        return await ItemModel.get(id=item_id)
+    except DoesNotExist:
+        return None
+
 async def get_user_items(user_id: int, skip: int = 0, limit: int = 100) -> List[ItemModel]:
     return await ItemModel.filter(user_id=user_id).offset(skip).limit(limit).all() # .prefetch_related('user') is good
 

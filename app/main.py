@@ -76,7 +76,7 @@ async def read_user(user_id: int):
         raise HTTPException(status_code=404, detail="User not found")
     return db_user
 
-@users_router.get("/{user_id}/items/", response_model=List[schemas.Item])
+@users_router.get("/{user_id}/items", response_model=List[schemas.Item])
 async def read_items_for_user(user_id: int):
     db_user = await crud.get_user_by_id(user_id)
     if db_user is None:
