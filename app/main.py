@@ -164,8 +164,6 @@ async def submit_social_media_url_async(submit_request: schemas.SubmitUrlRequest
     log.info(f"Received URL submission for background processing: {url_to_process}")
 
     try:
-        # Send the task to Celery queue
-        # .delay() is a shortcut for .apply_async()
         task = process_url_task.delay(url_to_process)
         log.info(f"Task {task.id} queued for URL: {url_to_process}")
 
