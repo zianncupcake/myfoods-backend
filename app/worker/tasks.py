@@ -14,6 +14,8 @@ from .celery_app import celery
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
 from ..services.r2_uploader import upload_image_from_url_to_r2 
 
+from solver import TikTokCaptchaSolver
+
 log = logging.getLogger(__name__)
 
 async def get_httpx_client() -> AsyncClient:
