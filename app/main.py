@@ -10,6 +10,7 @@ from .worker.tasks import process_url_task
 from .worker.celery_app import celery 
 from celery.result import AsyncResult
 from .models import User as UserModel
+from .services.ai_search import gemini_search
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("uvicorn")
@@ -77,12 +78,39 @@ async def read_user(user_id: int):
     return db_user
 
 @users_router.get("/{user_id}/items", response_model=List[schemas.Item])
-async def read_items_for_user(user_id: int):
+async def read_items_for_user(
+    user_id: int,
+    query: Optional[str] = None,
+    offset: int = 0,
+    limit: int = 20
+):
     db_user = await crud.get_user_by_id(user_id)
     if db_user is None:
         raise HTTPException(status_code=404, detail="User not found")
+    
     items = await crud.get_user_items(user_id=user_id)
-    return items
+
+    print(items)
+    
+    # If no query provided, return paginated items
+    if not query:
+        return items[offset:offset + limit]
+    
+    # If query provided, perform AI search with pagination
+    if not items:
+        return []
+        
+    try:
+        filtered_items = await gemini_search.search_items(
+            query=query,
+            items=items,
+            offset=offset,
+            limit=limit
+        )
+        return filtered_items
+    except Exception as e:
+        log.error(f"Search failed, returning paginated items: {str(e)}")
+        return items[offset:offset + limit]
 
 @users_router.put("/{user_id}", response_model=schemas.User)
 async def update_existing_user(user_id: int, user_in: schemas.UserUpdate):
@@ -137,6 +165,7 @@ async def delete_existing_item(item_id: int):
     if not deleted:
         raise HTTPException(status_code=404, detail="Item not found or delete failed")
     return None
+
 
 # --- Include Routers in the main app ---
 app.include_router(users_router)

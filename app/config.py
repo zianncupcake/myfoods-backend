@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1000"))
     algorithm: str = "HS256" 
 
+    google_ai_api_key: str = os.getenv("GOOGLE_AI_API_KEY", "")
+    gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash-exp")
+
     r2_account_id: str = os.getenv("R2_ACCOUNT_ID")
     r2_access_key_id: str = os.getenv("R2_ACCESS_KEY_ID")
     r2_secret_access_key: str = os.getenv("R2_SECRET_ACCESS_KEY")

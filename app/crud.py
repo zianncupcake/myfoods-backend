@@ -1,9 +1,12 @@
+import logging
 from typing import List, Optional
 from tortoise.exceptions import DoesNotExist, IntegrityError
 
 from .security import get_password_hash, verify_password
 from .models import User as UserModel, Item as ItemModel
-from .schemas import UserCreate, UserUpdate, ItemCreate, ItemUpdate 
+from .schemas import UserCreate, UserUpdate, ItemCreate, ItemUpdate
+
+log = logging.getLogger("uvicorn") 
 
 async def get_user_by_username(username: str) -> Optional[UserModel]:
     try:
@@ -77,7 +80,7 @@ async def get_item_by_id(item_id: int) -> Optional[UserModel]:
         return None
 
 async def get_user_items(user_id: int, skip: int = 0, limit: int = 100) -> List[ItemModel]:
-    return await ItemModel.filter(user_id=user_id).offset(skip).limit(limit).all() # .prefetch_related('user') is good
+    return await ItemModel.filter(user_id=user_id).offset(skip).limit(limit).all()
 
 async def update_item(item_id: int, item_data: ItemUpdate, owner_id: int) -> Optional[ItemModel]:
     try:
@@ -94,9 +97,11 @@ async def update_item(item_id: int, item_data: ItemUpdate, owner_id: int) -> Opt
     await item.save()
     return item
 
-async def delete_item(item_id: int) -> bool:
+async def delete_item(item_id: int, owner_id: int) -> bool:
     try:
         item = await ItemModel.get(id=item_id)
+        if item.user_id != owner_id:
+            return False
         await item.delete()
         return True
     except DoesNotExist:

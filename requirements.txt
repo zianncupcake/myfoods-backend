@@ -21,3 +21,4 @@ passlib[bcrypt]
 python-jose[cryptography]
 python-multipart
 boto3
+google-generativeai
