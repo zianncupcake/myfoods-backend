@@ -10,11 +10,8 @@ from httpx import AsyncClient, Response, TimeoutException, HTTPStatusError, Requ
 
 from .celery_app import celery 
 
-# from urllib.parse import quote
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
 from ..services.r2_uploader import upload_image_from_url_to_r2 
-
-# from solver import TikTokCaptchaSolver
 
 log = logging.getLogger(__name__)
 
@@ -31,46 +28,6 @@ async def get_httpx_client() -> AsyncClient:
         follow_redirects=True,
         timeout=20.0
     )
-
-# async def parse_ig(url: str) -> Dict:
-#     """Scrape single Instagram post data"""
-    # if "http" in url_or_shortcode:
-    #     shortcode = url_or_shortcode.split("/p/")[-1].split("/")[0]
-    # else:
-    #     shortcode = url_or_shortcode
-    # log.info(f"scraping instagram post: {shortcode}")
-
-    # variables = quote(json.dumps({
-    #     'shortcode':"DI09IhVPF0C",'fetch_tagged_user_count':None,
-    #     'hoisted_comment_id':None,'hoisted_reply_id':None
-    # }, separators=(',', ':')))
-
-    # log.info(f"VARIABLESSSSS {variables}")
-    # body = f"variables={variables}&doc_id={INSTAGRAM_DOCUMENT_ID}"
-    # url = "https://www.instagram.com/graphql/query"
-
-    # result = httpx.post(
-    #     url=url,
-    #     headers={"content-type": "application/x-www-form-urlencoded"},
-    #     data=body
-    # )
-
-    # log.info(f"RESULT CONTENT {result.content}")
-    # data = json.loads(result.content)
-    # return data["data"]["xdt_shortcode_media"]
-    
-    # result = SCRAPFLY.scrape(
-    #     ScrapeConfig(
-    #         url=url,
-    #         method="POST",
-    #         body=body,
-    #         headers={"content-type": "application/x-www-form-urlencoded"},
-    #         **BASE_CONFIG
-    #     )
-    # )
-    
-    # data = json.loads(result.content)
-    # return data["data"]["xdt_shortcode_media"]    
 
 def extract_username_slicing(text):
     start_marker = "comments - "
@@ -151,11 +108,6 @@ async def parse_ig(url: str) -> str:
                 creator = extract_username_slicing(desc)
                 slicedDesc = extract_caption_slicing(desc)
 
-            # log.info("Retrieving HTML content...")
-            # html_content = await page.content()
-            # log.info("HTML content retrieved.")
-            # with open('hi.html', "w", encoding="utf-8") as f:
-            #         f.write(html_content)
             return {
                 "desc": slicedDesc,
                 "creator": creator,
@@ -182,21 +134,30 @@ async def parse_ig(url: str) -> str:
         
         return html_content
 
-def parse_tiktok(response: Response) -> Optional[Dict]:
-    log.debug(f"Attempting to parse response for URL: {response.url}")
-    # if response.status_code != 200:
-    #     log.error(f"Request failed with status {response.status_code} for {response.url}. Cannot parse.")
-    #     return None
-    
-    # content_encoding = response.headers.get('content-encoding')
-    # log.info(f"Response Content-Encoding header: {content_encoding}")
+def parse_tiktok(html_content: str) -> Optional[Dict]:
+    log.info("Attempting to parse TikTok content")
 
     try:
-        selector = Selector(response.text)
+        selector = Selector(html_content)
         data_script = selector.xpath("//script[@id='__UNIVERSAL_DATA_FOR_REHYDRATION__']/text()").get()
+        
+        if not data_script:
+            log.error("No __UNIVERSAL_DATA_FOR_REHYDRATION__ script found")
+            return None
 
         json_data = json.loads(data_script)
+        
+        # Try video path first
         post_data = json_data.get("__DEFAULT_SCOPE__", {}).get("webapp.video-detail", {}).get("itemInfo", {}).get("itemStruct")
+        
+        # If video path is empty, try image path
+        if not post_data:
+            log.info("Video path empty, trying image/slide path")
+            post_data = json_data.get("__DEFAULT_SCOPE__", {}).get("webapp.reflow.video.detail", {}).get("itemInfo", {}).get("itemStruct")
+        
+        if not post_data:
+            log.error("No valid post data found in either path")
+            return None
 
         parsed_post_data = jmespath.search(
             """{
@@ -208,17 +169,16 @@ def parse_tiktok(response: Response) -> Optional[Dict]:
             }""",
             post_data
         )
-        log.debug(f"Successfully parsed post data for {response.url}")
+        log.info("Successfully parsed TikTok data")
         return parsed_post_data
+        
     except json.JSONDecodeError as e:
-        log.error(f"Failed to decode JSON from script tag for {response.url}: {e}")
-        return None
-    except KeyError as e:
-        log.error(f"Missing expected key in JSON structure for {response.url}: {e}")
+        log.error(f"Failed to decode JSON from script tag: {e}")
         return None
     except Exception as e:
-        log.error(f"Unexpected error during parsing for {response.url}: {e}", exc_info=True)
+        log.error(f"Unexpected error during parsing: {e}")
         return None
+
 
 async def _async_logic_for_task(source_url: str, task_id: str):
     log.info(f"[Task ID: {task_id}] Entering _async_logic_for_task")
@@ -230,9 +190,47 @@ async def _async_logic_for_task(source_url: str, task_id: str):
         log.info(f"[Task ID: {task_id}] Attempting to scrape URL (async): {source_url}")
         async with await get_httpx_client() as client:
             if "tiktok" in source_url:
-                response = await client.get(source_url)
-                response.raise_for_status()
-                data = parse_tiktok(response)
+                try:
+                    log.info(f"[Task ID: {task_id}] Launching Playwright browser...")
+                    async with async_playwright() as p:
+                        browser = await p.chromium.launch(
+                            headless=True,  
+                            args=[
+                                '--disable-blink-features=AutomationControlled',
+                                '--disable-dev-shm-usage',
+                                '--no-sandbox',
+                                '--disable-setuid-sandbox',
+                            ]
+                        )
+                        
+                        context = await browser.new_context(
+                            viewport={'width': 375, 'height': 812},
+                            user_agent='Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+                            locale='en-US',
+                            timezone_id='America/New_York'
+                        )
+                        
+                        page = await context.new_page()
+
+                        # Navigate to TikTok URL and get content
+                        log.info(f"[Task ID: {task_id}] Navigating to TikTok URL: {source_url}")
+                        await page.goto(source_url, wait_until="networkidle", timeout=30000)
+                        await page.wait_for_timeout(3000)
+
+                        html_content = await page.content()
+                        data = parse_tiktok(html_content)
+                        
+                        if data:
+                            log.info(f"[Task ID: {task_id}] Successfully parsed TikTok data")
+                        else:
+                            log.warning(f"[Task ID: {task_id}] Failed to parse TikTok data")
+                            
+                except PlaywrightTimeoutError as e:
+                    log.error(f"[Task ID: {task_id}] Playwright timeout while loading TikTok page: {e}")
+                    data = None
+                except Exception as tiktok_error:
+                    log.error(f"[Task ID: {task_id}] Error processing TikTok URL with Playwright: {tiktok_error}", exc_info=True)
+                    data = None
 
             else:
                 data = await parse_ig(source_url)
@@ -253,7 +251,7 @@ async def _async_logic_for_task(source_url: str, task_id: str):
                         )
                         log.info(f"[Task ID: {task_id}] Image upload to R2 successful: {image_upload_info}")
                         data["r2ImageUrl"] = image_upload_info.get("public_url")
-                        status = "SUCCESS" # Full success if image upload also worked
+                        status = "SUCCESS"
                     except Exception as r2_e:
                         log.error(f"[Task ID: {task_id}] R2 image upload failed: {r2_e}", exc_info=True)
                         error_message = f"Image upload failed: {str(r2_e)[:100]}"
