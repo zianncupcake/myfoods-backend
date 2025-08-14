@@ -1,6 +1,7 @@
 import httpx 
 import logging
 import json
+import re
 from typing import Dict, Optional
 import asyncio 
 
@@ -134,7 +135,94 @@ async def parse_ig(url: str) -> str:
         
         return html_content
 
-def parse_tiktok(html_content: str) -> Optional[Dict]:
+async def parse_youtube(url: str) -> Dict:
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True, args=["--start-maximized"])
+        context = await browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        )
+        page = await context.new_page()
+        result = {}
+
+        try:
+            log.info(f"Navigating to YouTube URL: {url}")
+            await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            log.info("YouTube page loaded.")
+
+            await page.wait_for_timeout(3000)
+            html_content = await page.content()
+
+            title = await page.locator('meta[property="og:title"]').first.get_attribute("content")
+            og_image = await page.locator('meta[property="og:image"]').first.get_attribute("content")
+            
+            username = None
+            
+            canonical_pattern = r'"canonicalBaseUrl":"/@([^"/]+)'
+            canonical_match = re.search(canonical_pattern, html_content)
+            
+            if canonical_match:
+                username = canonical_match.group(1)
+
+            result = {
+                "desc": title,
+                "creator": username,
+                "imageUrl": og_image
+            }
+
+        except PlaywrightTimeoutError as e:
+            log.error(f"A Playwright timeout occurred while parsing YouTube: {e}")
+        except Exception as e:
+            log.error(f"An unexpected error occurred while parsing YouTube: {e}")
+        finally:
+            await browser.close()
+        
+        return result
+
+async def parse_tiktok_with_playwright(url: str) -> Optional[Dict]:
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(
+            headless=True,  
+            args=[
+                '--disable-blink-features=AutomationControlled',
+                '--disable-dev-shm-usage',
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+            ]
+        )
+        
+        context = await browser.new_context(
+            viewport={'width': 375, 'height': 812},
+            user_agent='Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+            locale='en-US',
+            timezone_id='America/New_York'
+        )
+        
+        page = await context.new_page()
+        data = None
+
+        try:
+            log.info(f"Navigating to TikTok URL: {url}")
+            await page.goto(url, wait_until="networkidle", timeout=30000)
+            await page.wait_for_timeout(3000)
+
+            html_content = await page.content()
+            data = parse_tiktok_html(html_content)
+            
+            if data:
+                log.info("Successfully parsed TikTok data")
+            else:
+                log.warning("Failed to parse TikTok data")
+                
+        except PlaywrightTimeoutError as e:
+            log.error(f"Playwright timeout while loading TikTok page: {e}")
+        except Exception as e:
+            log.error(f"Error processing TikTok URL with Playwright: {e}", exc_info=True)
+        finally:
+            await browser.close()
+            
+        return data
+
+def parse_tiktok_html(html_content: str) -> Optional[Dict]:
     log.info("Attempting to parse TikTok content")
 
     try:
@@ -169,7 +257,6 @@ def parse_tiktok(html_content: str) -> Optional[Dict]:
             }""",
             post_data
         )
-        log.info("Successfully parsed TikTok data")
         return parsed_post_data
         
     except json.JSONDecodeError as e:
@@ -188,85 +275,49 @@ async def _async_logic_for_task(source_url: str, task_id: str):
 
     try:
         log.info(f"[Task ID: {task_id}] Attempting to scrape URL (async): {source_url}")
-        async with await get_httpx_client() as client:
-            if "tiktok" in source_url:
+        
+        if "tiktok" in source_url:
+            data = await parse_tiktok_with_playwright(source_url)
+        elif "youtube.com" in source_url or "youtu.be" in source_url:
+            data = await parse_youtube(source_url)
+        elif "instagram.com" in source_url:
+            data = await parse_ig(source_url)
+        else:
+            log.warning(f"[Task ID: {task_id}] Unknown platform for URL: {source_url}")
+            data = None
+
+        if data:
+            log.info(f"[Task ID: {task_id}] PARSED DATA RECEIVED:")
+            
+            # --- Integrate R2 Image Upload ---
+            image_url = data.get("imageUrl")
+            if image_url:
+                r2_object_prefix = f"images/{task_id}" 
+                
+                log.info(f"[Task ID: {task_id}] Attempting to upload image from {image_url} to R2.")
                 try:
-                    log.info(f"[Task ID: {task_id}] Launching Playwright browser...")
-                    async with async_playwright() as p:
-                        browser = await p.chromium.launch(
-                            headless=True,  
-                            args=[
-                                '--disable-blink-features=AutomationControlled',
-                                '--disable-dev-shm-usage',
-                                '--no-sandbox',
-                                '--disable-setuid-sandbox',
-                            ]
-                        )
-                        
-                        context = await browser.new_context(
-                            viewport={'width': 375, 'height': 812},
-                            user_agent='Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
-                            locale='en-US',
-                            timezone_id='America/New_York'
-                        )
-                        
-                        page = await context.new_page()
-
-                        # Navigate to TikTok URL and get content
-                        log.info(f"[Task ID: {task_id}] Navigating to TikTok URL: {source_url}")
-                        await page.goto(source_url, wait_until="networkidle", timeout=30000)
-                        await page.wait_for_timeout(3000)
-
-                        html_content = await page.content()
-                        data = parse_tiktok(html_content)
-                        
-                        if data:
-                            log.info(f"[Task ID: {task_id}] Successfully parsed TikTok data")
-                        else:
-                            log.warning(f"[Task ID: {task_id}] Failed to parse TikTok data")
-                            
-                except PlaywrightTimeoutError as e:
-                    log.error(f"[Task ID: {task_id}] Playwright timeout while loading TikTok page: {e}")
-                    data = None
-                except Exception as tiktok_error:
-                    log.error(f"[Task ID: {task_id}] Error processing TikTok URL with Playwright: {tiktok_error}", exc_info=True)
-                    data = None
-
+                    image_upload_info = await upload_image_from_url_to_r2(
+                        image_url,
+                        desired_object_key_prefix=r2_object_prefix
+                    )
+                    log.info(f"[Task ID: {task_id}] Image upload to R2 successful: {image_upload_info}")
+                    data["r2ImageUrl"] = image_upload_info.get("public_url")
+                    status = "SUCCESS"
+                except Exception as r2_e:
+                    log.error(f"[Task ID: {task_id}] R2 image upload failed: {r2_e}", exc_info=True)
+                    error_message = f"Image upload failed: {str(r2_e)[:100]}"
+                    data["r2_image_error"] = error_message
             else:
-                data = await parse_ig(source_url)
+                log.info(f"[Task ID: {task_id}] No imageUrl found in parsed data.")
 
-            if data:
-                log.info(f"[Task ID: {task_id}] PARSED DATA RECEIVED:")
-
-                # --- Integrate R2 Image Upload ---
-                image_url = data.get("imageUrl")
-                if image_url:
-                    r2_object_prefix = f"images/{task_id}" 
-                    
-                    log.info(f"[Task ID: {task_id}] Attempting to upload image from {image_url} to R2.")
-                    try:
-                        image_upload_info = await upload_image_from_url_to_r2(
-                            image_url,
-                            desired_object_key_prefix=r2_object_prefix
-                        )
-                        log.info(f"[Task ID: {task_id}] Image upload to R2 successful: {image_upload_info}")
-                        data["r2ImageUrl"] = image_upload_info.get("public_url")
-                        status = "SUCCESS"
-                    except Exception as r2_e:
-                        log.error(f"[Task ID: {task_id}] R2 image upload failed: {r2_e}", exc_info=True)
-                        error_message = f"Image upload failed: {str(r2_e)[:100]}"
-                        parsed_content_data["r2_image_error"] = error_message
-                else:
-                    log.info(f"[Task ID: {task_id}] No imageUrl found in parsed data.")
-
-                try:
-                    log.info("success")
-                except Exception as log_e:
-                    log.error(f"Error logging full scraped_post_info: {log_e}")
-                    log.info(f"Raw full scraped_post_info: {data}") 
-            else:
-                error_message = "No data found"
-                log.warning(f"[Task ID: {task_id}] Parsing returned None (check logs above for parsing errors).")
+            try:
+                log.info("success")
+            except Exception as log_e:
+                log.error(f"Error logging full scraped_post_info: {log_e}")
+                log.info(f"Raw full scraped_post_info: {data}")
+        else:
+            error_message = "No data found"
+            log.warning(f"[Task ID: {task_id}] Parsing returned None (check logs above for parsing errors).")
 
     except HTTPStatusError as e:
         log.error(f"[Task ID: {task_id}] HTTP error {e.response.status_code} during async scrape: {e.response.text[:200]}")
