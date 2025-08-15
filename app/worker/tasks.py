@@ -191,21 +191,34 @@ async def parse_youtube(url: str) -> Dict:
             # Wait for initial data to load
             await page.wait_for_timeout(2000)
             
-            # Extract data using JavaScript evaluation to minimize memory
+            # Method 1: Try to extract from meta tags and initial page state
             extracted_data = await page.evaluate('''() => {
                 const getMetaContent = (property) => {
                     const meta = document.querySelector(`meta[property="${property}"]`);
                     return meta ? meta.content : null;
                 };
                 
-                const getChannelFromScripts = () => {
+                const getChannelFromPage = () => {
+                    // First try to find anchor tag with /shorts in href
+                    const shortsLink = document.querySelector('a[href*="/shorts"]');
+                    if (shortsLink) {
+                        const text = shortsLink.textContent || shortsLink.innerText || '';
+                        // Remove @ if present
+                        return text.replace('@', '').trim();
+                    }
+                    
+                    // Fallback to script tags
                     const scripts = document.querySelectorAll('script');
                     for (let script of scripts) {
-                        const text = script.innerText;
+                        const text = script.innerText || script.textContent || '';
+                        
+                        // Try canonicalBaseUrl first
                         if (text.includes('canonicalBaseUrl')) {
                             const match = text.match(/"canonicalBaseUrl":"\\/@([^"]+)"/);
                             if (match) return match[1];
                         }
+                        
+                        // Try ownerChannelName second
                         if (text.includes('ownerChannelName')) {
                             const match = text.match(/"ownerChannelName":"([^"]+)"/);
                             if (match) return match[1];
@@ -217,13 +230,39 @@ async def parse_youtube(url: str) -> Dict:
                 return {
                     title: getMetaContent('og:title') || document.title,
                     image: getMetaContent('og:image'),
-                    channel: getChannelFromScripts()
+                    channel: getChannelFromPage()
                 };
             }''')
             
             result["desc"] = extracted_data.get("title")
             result["imageUrl"] = extracted_data.get("image")
             result["creator"] = extracted_data.get("channel")
+            
+            # Method 2: If missing data, wait and search HTML directly
+            if not result["creator"] or not result["imageUrl"]:
+                log.info("Missing data, trying fallback method...")
+                await page.wait_for_timeout(3000)
+                
+                html_content = await page.content()
+                
+                # Extract creator from anchor tag with /shorts first
+                if not result["creator"]:
+                    anchor_match = re.search(r'<a[^>]*href="[^"]*/@([^"/]+)/shorts"[^>]*>', html_content)
+                    if anchor_match:
+                        result["creator"] = anchor_match.group(1)
+                    else:
+                        # Fallback to JSON patterns
+                        creator_match = re.search(r'"canonicalBaseUrl":"/@([^"]+)"', html_content)
+                        if not creator_match:
+                            creator_match = re.search(r'"ownerChannelName":"([^"]+)"', html_content)
+                        if creator_match:
+                            result["creator"] = creator_match.group(1)
+                
+                # Extract image
+                if not result["imageUrl"]:
+                    image_match = re.search(r'<meta property="og:image" content="([^"]+)"', html_content)
+                    if image_match:
+                        result["imageUrl"] = image_match.group(1)
             
             log.info(f"YouTube data extracted: title={bool(result['desc'])}, creator={bool(result['creator'])}, image={bool(result['imageUrl'])}")
             
