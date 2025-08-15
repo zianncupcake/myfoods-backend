@@ -194,8 +194,32 @@ async def parse_youtube(url: str) -> Dict:
             # Method 1: Try to extract from meta tags and initial page state
             extracted_data = await page.evaluate('''() => {
                 const getMetaContent = (property) => {
+                    // Try multiple ways to get meta content
                     const meta = document.querySelector(`meta[property="${property}"]`);
-                    return meta ? meta.content : null;
+                    if (meta) return meta.content || meta.getAttribute('content');
+                    
+                    // Try with name attribute
+                    const metaName = document.querySelector(`meta[name="${property}"]`);
+                    if (metaName) return metaName.content || metaName.getAttribute('content');
+                    
+                    return null;
+                };
+                
+                const getImageUrl = () => {
+                    // Method 1: Try og:image meta tag
+                    let imageUrl = getMetaContent('og:image');
+                    if (imageUrl) return imageUrl;
+                    
+                    // Method 2: Find any meta tag with ytimg.com
+                    const allMetas = document.querySelectorAll('meta');
+                    for (let meta of allMetas) {
+                        const content = meta.getAttribute('content');
+                        if (content && content.includes('ytimg.com')) {
+                            return content;
+                        }
+                    }
+                    
+                    return null;
                 };
                 
                 const getChannelFromPage = () => {
@@ -229,7 +253,7 @@ async def parse_youtube(url: str) -> Dict:
                 
                 return {
                     title: getMetaContent('og:title') || document.title,
-                    image: getMetaContent('og:image'),
+                    image: getImageUrl(),
                     channel: getChannelFromPage()
                 };
             }''')
@@ -258,9 +282,10 @@ async def parse_youtube(url: str) -> Dict:
                         if creator_match:
                             result["creator"] = creator_match.group(1)
                 
-                # Extract image
+                # Extract image - Method 3: Fallback regex search
                 if not result["imageUrl"]:
-                    image_match = re.search(r'<meta property="og:image" content="([^"]+)"', html_content)
+                    # Look for YouTube thumbnail URL pattern anywhere in HTML
+                    image_match = re.search(r'(https://i\.ytimg\.com/vi/[^"\'<>]+)', html_content)
                     if image_match:
                         result["imageUrl"] = image_match.group(1)
             
