@@ -2,6 +2,7 @@ import httpx
 import logging
 import json
 import re
+import gc
 from typing import Dict, Optional
 import asyncio 
 
@@ -132,6 +133,7 @@ async def parse_ig(url: str) -> str:
                 log.info(f"Could not retrieve HTML on error: {e_html}")
         finally:
             await browser.close()
+            gc.collect()
         
         return html_content
 
@@ -302,6 +304,9 @@ async def parse_youtube(url: str) -> Dict:
                     await browser.close()
                 except Exception as e:
                     log.debug(f"Browser already closed: {e}")
+            
+            # Force garbage collection to free memory
+            gc.collect()
     
     return result
 
@@ -346,6 +351,7 @@ async def parse_tiktok_with_playwright(url: str) -> Optional[Dict]:
             log.error(f"Error processing TikTok URL with Playwright: {e}", exc_info=True)
         finally:
             await browser.close()
+            gc.collect()
             
         return data
 
@@ -492,5 +498,9 @@ def process_url_task(self, source_url: str):
             "error": f"Sync Wrapper Exception: {str(e)[:100]}"
         }
     log.info(f"[Task ID: {task_id}] SYNC wrapper finished for URL: {source_url}")
+    
+    # Force garbage collection after task completion
+    gc.collect()
+    
     return final_result
 
