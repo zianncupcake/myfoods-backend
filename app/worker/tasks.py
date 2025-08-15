@@ -190,106 +190,37 @@ async def parse_youtube(url: str) -> Dict:
             log.info(f"Navigating to YouTube URL: {url}")
             await page.goto(url, wait_until="domcontentloaded", timeout=15000)
             
-            # Wait for initial data to load
-            await page.wait_for_timeout(2000)
+            # Wait for page to load fully
+            await page.wait_for_timeout(5000)
             
-            # Method 1: Try to extract from meta tags and initial page state
-            extracted_data = await page.evaluate('''() => {
-                const getMetaContent = (property) => {
-                    // Try multiple ways to get meta content
-                    const meta = document.querySelector(`meta[property="${property}"]`);
-                    if (meta) return meta.content || meta.getAttribute('content');
-                    
-                    // Try with name attribute
-                    const metaName = document.querySelector(`meta[name="${property}"]`);
-                    if (metaName) return metaName.content || metaName.getAttribute('content');
-                    
-                    return null;
-                };
-                
-                const getImageUrl = () => {
-                    // Method 1: Try og:image meta tag
-                    let imageUrl = getMetaContent('og:image');
-                    if (imageUrl) return imageUrl;
-                    
-                    // Method 2: Find any meta tag with ytimg.com
-                    const allMetas = document.querySelectorAll('meta');
-                    for (let meta of allMetas) {
-                        const content = meta.getAttribute('content');
-                        if (content && content.includes('ytimg.com')) {
-                            return content;
-                        }
-                    }
-                    
-                    return null;
-                };
-                
-                const getChannelFromPage = () => {
-                    // First try to find anchor tag with /shorts in href
-                    const shortsLink = document.querySelector('a[href*="/shorts"]');
-                    if (shortsLink) {
-                        const text = shortsLink.textContent || shortsLink.innerText || '';
-                        // Remove @ if present
-                        return text.replace('@', '').trim();
-                    }
-                    
-                    // Fallback to script tags
-                    const scripts = document.querySelectorAll('script');
-                    for (let script of scripts) {
-                        const text = script.innerText || script.textContent || '';
-                        
-                        // Try canonicalBaseUrl first
-                        if (text.includes('canonicalBaseUrl')) {
-                            const match = text.match(/"canonicalBaseUrl":"\\/@([^"]+)"/);
-                            if (match) return match[1];
-                        }
-                        
-                        // Try ownerChannelName second
-                        if (text.includes('ownerChannelName')) {
-                            const match = text.match(/"ownerChannelName":"([^"]+)"/);
-                            if (match) return match[1];
-                        }
-                    }
-                    return null;
-                };
-                
-                return {
-                    title: getMetaContent('og:title') || document.title,
-                    image: getImageUrl(),
-                    channel: getChannelFromPage()
-                };
-            }''')
+            # Get HTML content directly (Method 2)
+            html_content = await page.content()
             
-            result["desc"] = extracted_data.get("title")
-            result["imageUrl"] = extracted_data.get("image")
-            result["creator"] = extracted_data.get("channel")
+            # Extract title from meta or page title
+            title_match = re.search(r'<meta property="og:title" content="([^"]+)"', html_content)
+            if title_match:
+                result["desc"] = title_match.group(1)
+            else:
+                title_match = re.search(r'<title>([^<]+)</title>', html_content)
+                if title_match:
+                    result["desc"] = title_match.group(1)
             
-            # Method 2: If missing data, wait and search HTML directly
-            if not result["creator"] or not result["imageUrl"]:
-                log.info("Missing data, trying fallback method...")
-                await page.wait_for_timeout(3000)
-                
-                html_content = await page.content()
-                
-                # Extract creator from anchor tag with /shorts first
-                if not result["creator"]:
-                    anchor_match = re.search(r'<a[^>]*href="[^"]*/@([^"/]+)/shorts"[^>]*>', html_content)
-                    if anchor_match:
-                        result["creator"] = anchor_match.group(1)
-                    else:
-                        # Fallback to JSON patterns
-                        creator_match = re.search(r'"canonicalBaseUrl":"/@([^"]+)"', html_content)
-                        if not creator_match:
-                            creator_match = re.search(r'"ownerChannelName":"([^"]+)"', html_content)
-                        if creator_match:
-                            result["creator"] = creator_match.group(1)
-                
-                # Extract image - Method 3: Fallback regex search
-                if not result["imageUrl"]:
-                    # Look for YouTube thumbnail URL pattern anywhere in HTML
-                    image_match = re.search(r'(https://i\.ytimg\.com/vi/[^"\'<>]+)', html_content)
-                    if image_match:
-                        result["imageUrl"] = image_match.group(1)
+            # Extract creator from anchor tag with /shorts first
+            anchor_match = re.search(r'<a[^>]*href="[^"]*/@([^"/]+)/shorts"[^>]*>', html_content)
+            if anchor_match:
+                result["creator"] = anchor_match.group(1)
+            else:
+                # Fallback to JSON patterns
+                creator_match = re.search(r'"canonicalBaseUrl":"/@([^"]+)"', html_content)
+                if not creator_match:
+                    creator_match = re.search(r'"ownerChannelName":"([^"]+)"', html_content)
+                if creator_match:
+                    result["creator"] = creator_match.group(1)
+            
+            # Extract image URL
+            image_match = re.search(r'(https://i\.ytimg\.com/vi/[^"\'<>]+)', html_content)
+            if image_match:
+                result["imageUrl"] = image_match.group(1)
             
             log.info(f"YouTube data extracted: title={bool(result['desc'])}, creator={bool(result['creator'])}, image={bool(result['imageUrl'])}")
             
