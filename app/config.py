@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     redis_url: str = os.getenv("REDISCLOUD_URL", "redis://localhost:6379/0") 
 
     secret_key: str = os.getenv("SECRET_KEY", "samplesecretkey")
-    access_token_expire_minutes: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1000"))
+    access_token_expire_minutes: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "52560000"))
     algorithm: str = "HS256" 
 
     google_ai_api_key: str = os.getenv("GOOGLE_AI_API_KEY", "")
