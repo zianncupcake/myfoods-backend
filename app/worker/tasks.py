@@ -144,23 +144,34 @@ async def parse_youtube(url: str) -> Dict:
                 '--disable-dev-shm-usage',
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
+                '--disable-gpu',
+                '--disable-web-security',
+                '--disable-features=VizDisplayCompositor',
+                '--max_old_space_size=512',
+                '--memory-pressure-off',
+                '--max-memory-percent=50',
+                '--single-process',
+                '--no-zygote',
+                '--disable-extensions',
+                '--disable-images',
             ]
         )
         context = await browser.new_context(
-            viewport={'width': 1920, 'height': 1080},
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+            viewport={'width': 1280, 'height': 720},
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            java_script_enabled=True,
+            ignore_https_errors=True,
         )
         page = await context.new_page()
         result = {}
 
         try:
             log.info(f"Navigating to YouTube URL: {url}")
-            await page.goto(url, wait_until="networkidle", timeout=30000)
+            await page.goto(url, wait_until="domcontentloaded", timeout=20000)
             log.info("YouTube page loaded.")
 
-            await page.wait_for_timeout(3000)
-            html_content = await page.content()
-
+            await page.wait_for_selector('meta[property="og:title"]', timeout=5000)
+            
             try:
                 title = await page.locator('meta[property="og:title"]').first.get_attribute("content")
             except:
@@ -175,11 +186,18 @@ async def parse_youtube(url: str) -> Dict:
             
             username = None
             
-            canonical_pattern = r'"canonicalBaseUrl":"/@([^"/]+)'
-            canonical_match = re.search(canonical_pattern, html_content)
-            
-            if canonical_match:
-                username = canonical_match.group(1)
+            try:
+                canonical_element = await page.locator('link[rel="canonical"]').first.get_attribute("href")
+                if canonical_element and "/@" in canonical_element:
+                    username = canonical_element.split("/@")[1].split("/")[0]
+                else:
+                    script_text = await page.evaluate('() => document.documentElement.innerHTML.substring(0, 50000)')
+                    canonical_pattern = r'"canonicalBaseUrl":"/@([^"/]+)'
+                    canonical_match = re.search(canonical_pattern, script_text)
+                    if canonical_match:
+                        username = canonical_match.group(1)
+            except Exception as e:
+                log.warning(f"Could not extract username: {e}")
 
             result = {
                 "desc": title,
@@ -192,6 +210,7 @@ async def parse_youtube(url: str) -> Dict:
         except Exception as e:
             log.error(f"An unexpected error occurred while parsing YouTube: {e}")
         finally:
+            await context.close()
             await browser.close()
         
         return result
