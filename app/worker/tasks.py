@@ -137,8 +137,17 @@ async def parse_ig(url: str) -> str:
 
 async def parse_youtube(url: str) -> Dict:
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True, args=["--start-maximized"])
+        browser = await p.chromium.launch(
+            headless=True,
+            args=[
+                '--disable-blink-features=AutomationControlled',
+                '--disable-dev-shm-usage',
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+            ]
+        )
         context = await browser.new_context(
+            viewport={'width': 1920, 'height': 1080},
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
         )
         page = await context.new_page()
@@ -146,14 +155,23 @@ async def parse_youtube(url: str) -> Dict:
 
         try:
             log.info(f"Navigating to YouTube URL: {url}")
-            await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            await page.goto(url, wait_until="networkidle", timeout=30000)
             log.info("YouTube page loaded.")
 
             await page.wait_for_timeout(3000)
             html_content = await page.content()
 
-            title = await page.locator('meta[property="og:title"]').first.get_attribute("content")
-            og_image = await page.locator('meta[property="og:image"]').first.get_attribute("content")
+            try:
+                title = await page.locator('meta[property="og:title"]').first.get_attribute("content")
+            except:
+                title = None
+                log.warning("Could not extract og:title")
+            
+            try:
+                og_image = await page.locator('meta[property="og:image"]').first.get_attribute("content")
+            except:
+                og_image = None
+                log.warning("Could not extract og:image")
             
             username = None
             
