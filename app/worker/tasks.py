@@ -136,84 +136,110 @@ async def parse_ig(url: str) -> str:
         return html_content
 
 async def parse_youtube(url: str) -> Dict:
+    """Optimized YouTube scraping with minimal memory usage"""
+    result = {"desc": None, "creator": None, "imageUrl": None}
+    
     async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=True,
-            args=[
-                '--disable-blink-features=AutomationControlled',
-                '--disable-dev-shm-usage',
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-gpu',
-                '--disable-web-security',
-                '--disable-features=VizDisplayCompositor',
-                '--max_old_space_size=512',
-                '--memory-pressure-off',
-                '--max-memory-percent=50',
-                '--single-process',
-                '--no-zygote',
-                '--disable-extensions',
-                '--disable-images',
-            ]
-        )
-        context = await browser.new_context(
-            viewport={'width': 1280, 'height': 720},
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-            java_script_enabled=True,
-            ignore_https_errors=True,
-        )
-        page = await context.new_page()
-        result = {}
-
+        browser = None
         try:
+            browser = await p.chromium.launch(
+                headless=True,
+                args=[
+                    '--disable-blink-features=AutomationControlled',
+                    '--disable-dev-shm-usage',
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-gpu',
+                    '--disable-web-security',
+                    '--disable-features=VizDisplayCompositor',
+                    '--disable-extensions',
+                    '--disable-images',
+                    '--disable-background-timer-throttling',
+                    '--disable-backgrounding-occluded-windows',
+                    '--disable-renderer-backgrounding',
+                    '--disable-features=TranslateUI',
+                    '--disable-ipc-flooding-protection',
+                    '--js-flags=--max-old-space-size=256',
+                    '--max_old_space_size=256',
+                    '--memory-pressure-off',
+                ]
+            )
+            
+            context = await browser.new_context(
+                viewport={'width': 800, 'height': 600},
+                user_agent="Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36",
+                locale='en-US',
+                timezone_id='America/New_York',
+                bypass_csp=True,
+                ignore_https_errors=True,
+                java_script_enabled=True,
+                has_touch=True,
+                is_mobile=True,
+            )
+            
+            page = await context.new_page()
+            
+            # Block unnecessary resources to save memory
+            await page.route("**/*.{png,jpg,jpeg,gif,webp,svg,mp4,webm,ogg,mp3,wav,flac,aac,woff,woff2,ttf,otf}", 
+                           lambda route: route.abort())
+            await page.route("**/ads/**", lambda route: route.abort())
+            await page.route("**/analytics/**", lambda route: route.abort())
+            
             log.info(f"Navigating to YouTube URL: {url}")
-            await page.goto(url, wait_until="domcontentloaded", timeout=20000)
-            log.info("YouTube page loaded.")
-
-            await page.wait_for_selector('meta[property="og:title"]', timeout=5000)
+            await page.goto(url, wait_until="domcontentloaded", timeout=15000)
             
-            try:
-                title = await page.locator('meta[property="og:title"]').first.get_attribute("content")
-            except:
-                title = None
-                log.warning("Could not extract og:title")
+            # Wait for initial data to load
+            await page.wait_for_timeout(2000)
             
-            try:
-                og_image = await page.locator('meta[property="og:image"]').first.get_attribute("content")
-            except:
-                og_image = None
-                log.warning("Could not extract og:image")
+            # Extract data using JavaScript evaluation to minimize memory
+            extracted_data = await page.evaluate('''() => {
+                const getMetaContent = (property) => {
+                    const meta = document.querySelector(`meta[property="${property}"]`);
+                    return meta ? meta.content : null;
+                };
+                
+                const getChannelFromScripts = () => {
+                    const scripts = document.querySelectorAll('script');
+                    for (let script of scripts) {
+                        const text = script.innerText;
+                        if (text.includes('canonicalBaseUrl')) {
+                            const match = text.match(/"canonicalBaseUrl":"\\/@([^"]+)"/);
+                            if (match) return match[1];
+                        }
+                        if (text.includes('ownerChannelName')) {
+                            const match = text.match(/"ownerChannelName":"([^"]+)"/);
+                            if (match) return match[1];
+                        }
+                    }
+                    return null;
+                };
+                
+                return {
+                    title: getMetaContent('og:title') || document.title,
+                    image: getMetaContent('og:image'),
+                    channel: getChannelFromScripts()
+                };
+            }''')
             
-            username = None
+            result["desc"] = extracted_data.get("title")
+            result["imageUrl"] = extracted_data.get("image")
+            result["creator"] = extracted_data.get("channel")
             
-            try:
-                canonical_element = await page.locator('link[rel="canonical"]').first.get_attribute("href")
-                if canonical_element and "/@" in canonical_element:
-                    username = canonical_element.split("/@")[1].split("/")[0]
-                else:
-                    script_text = await page.evaluate('() => document.documentElement.innerHTML.substring(0, 50000)')
-                    canonical_pattern = r'"canonicalBaseUrl":"/@([^"/]+)'
-                    canonical_match = re.search(canonical_pattern, script_text)
-                    if canonical_match:
-                        username = canonical_match.group(1)
-            except Exception as e:
-                log.warning(f"Could not extract username: {e}")
-
-            result = {
-                "desc": title,
-                "creator": username,
-                "imageUrl": og_image
-            }
-
+            log.info(f"YouTube data extracted: title={bool(result['desc'])}, creator={bool(result['creator'])}, image={bool(result['imageUrl'])}")
+            
         except PlaywrightTimeoutError as e:
-            log.error(f"A Playwright timeout occurred while parsing YouTube: {e}")
+            log.error(f"Playwright timeout while parsing YouTube: {e}")
         except Exception as e:
-            log.error(f"An unexpected error occurred while parsing YouTube: {e}")
+            log.error(f"Error parsing YouTube: {e}")
         finally:
-            await context.close()
-            await browser.close()
-        
-        return result
+            # Safe cleanup - check if browser exists and is connected
+            if browser:
+                try:
+                    await browser.close()
+                except Exception as e:
+                    log.debug(f"Browser already closed: {e}")
+    
+    return result
 
 async def parse_tiktok_with_playwright(url: str) -> Optional[Dict]:
     async with async_playwright() as p:
