@@ -24,10 +24,12 @@ celery.conf.update(
     result_serializer='json',
     accept_content=['json'],
     # Memory optimization settings
-    worker_max_tasks_per_child=5,  # Restart worker after 5 tasks to free memory
-    worker_max_memory_per_child=400000,  # Restart worker if it uses more than 400MB
+    worker_max_tasks_per_child=3,  # Restart worker after 3 tasks to free memory
+    worker_max_memory_per_child=350000,  # Restart worker if it uses more than 350MB
     task_time_limit=60,  # Kill tasks that run longer than 60 seconds
     task_soft_time_limit=45,  # Warn at 45 seconds
+    worker_concurrency=1,  # Use only 1 worker process to minimize memory
+    worker_prefetch_multiplier=1,  # Only prefetch 1 task at a time
 )
 
 # Automatically discover tasks in the 'tasks.py' file within this 'worker' package
