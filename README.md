@@ -50,28 +50,6 @@ A FastAPI-based microservice for asynchronously scraping and processing social m
 - **User**: Authentication and ownership
 - **Item**: Scraped content with metadata (URL, image, tags, categories)
 
-## CI/CD Requirements
-
-### Environment Variables
-```bash
-# Database
-DATABASE_URL=postgresql://user:pass@host:5432/dbname
-
-# Redis (Celery broker)
-REDISCLOUD_URL=redis://localhost:6379/0
-
-# Security
-SECRET_KEY=your-secret-key
-ACCESS_TOKEN_EXPIRE_MINUTES=1000
-
-# Cloudflare R2
-R2_ACCOUNT_ID=xxx
-R2_ACCESS_KEY_ID=xxx
-R2_SECRET_ACCESS_KEY=xxx
-R2_BUCKET_NAME=xxx
-R2_PUBLIC_URL_BASE=https://xxx
-```
-
 ### Dependencies
 - Python 3.9+ (see runtime.txt)
 - PostgreSQL 13+
