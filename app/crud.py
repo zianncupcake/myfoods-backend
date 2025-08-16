@@ -80,7 +80,7 @@ async def get_item_by_id(item_id: int) -> Optional[UserModel]:
         return None
 
 async def get_user_items(user_id: int, skip: int = 0, limit: int = 100) -> List[ItemModel]:
-    return await ItemModel.filter(user_id=user_id).offset(skip).limit(limit).all()
+    return await ItemModel.filter(user_id=user_id).order_by('-created_at').offset(skip).limit(limit).all()
 
 async def update_item(item_id: int, item_data: ItemUpdate, owner_id: int) -> Optional[ItemModel]:
     try:
