@@ -1,0 +1,77 @@
+version: '3.8'
+
+services:
+  # Container 1: PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_DB=myfoods_db
+      - POSTGRES_USER=ziann
+      - POSTGRES_PASSWORD=Sjyjy8600!
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ziann"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Container 2: Redis Message Broker
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Container 3: FastAPI Web Server
+  web:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://ziann:Sjyjy8600!@postgres:5432/myfoods_db
+      - REDISCLOUD_URL=redis://redis:6379/0
+      - SECRET_KEY=${SECRET_KEY}
+      - R2_ACCOUNT_ID=${R2_ACCOUNT_ID}
+      - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID}
+      - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY}
+      - R2_BUCKET_NAME=${R2_BUCKET_NAME}
+      - R2_PUBLIC_URL_BASE=${R2_PUBLIC_URL_BASE}
+      - GOOGLE_AI_API_KEY=${GOOGLE_AI_API_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: >
+      sh -c "aerich upgrade &&
+             gunicorn -w 2 -k uvicorn.workers.UvicornWorker app.main:app --bind 0.0.0.0:8000"
+
+  # Container 4: Celery Worker
+  worker:
+    build: .
+    environment:
+      - DATABASE_URL=postgresql://ziann:Sjyjy8600!@postgres:5432/myfoods_db
+      - REDISCLOUD_URL=redis://redis:6379/0
+      - SECRET_KEY=${SECRET_KEY}
+      - R2_ACCOUNT_ID=${R2_ACCOUNT_ID}
+      - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID}
+      - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY}
+      - R2_BUCKET_NAME=${R2_BUCKET_NAME}
+      - R2_PUBLIC_URL_BASE=${R2_PUBLIC_URL_BASE}
+      - GOOGLE_AI_API_KEY=${GOOGLE_AI_API_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=1 --max-tasks-per-child=3
+    deploy:
+      resources:
+        limits:
+          memory: 512M  # Limit worker memory
+
+volumes:
+  postgres_data:
