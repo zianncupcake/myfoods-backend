@@ -8,7 +8,6 @@ class ItemBase(BaseModel):
     source_url: Optional[HttpUrl] = None
     image_url: Optional[HttpUrl] = None
     notes: Optional[str] = None
-    categories: List[str] = Field(default_factory=list)
     tags: List[str] = Field(default_factory=list)
     creator: Optional[str] = None
 
@@ -21,7 +20,6 @@ class ItemUpdate(BaseModel):
     source_url: Optional[HttpUrl] = None
     image_url: Optional[HttpUrl] = None
     notes: Optional[str] = None
-    categories: Optional[List[str]] = None
     tags: Optional[List[str]] = None
     creator: Optional[str] = None
 

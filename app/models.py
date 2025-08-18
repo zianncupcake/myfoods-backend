@@ -18,7 +18,6 @@ class Item(Model):
     source_url = fields.TextField(null=True) 
     image_url = fields.TextField(null=True) 
     notes = fields.TextField(null=True)
-    categories = fields.JSONField(default_factory=list) 
     tags = fields.JSONField(default_factory=list)      
     creator = fields.CharField(max_length=255, null=True) 
 

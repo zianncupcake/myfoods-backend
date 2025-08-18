@@ -87,8 +87,6 @@ class GeminiSearchService:
         if item.tags:
             parts.append(f"Tags: {', '.join(item.tags)}")
             
-        if item.categories:
-            parts.append(f"Categories: {', '.join(item.categories)}")
             
         if item.creator:
             parts.append(f"Creator: {item.creator}")
@@ -105,11 +103,11 @@ class GeminiSearchService:
         prompt = f"""
 I am providing you with:
 1. A user's search request: "{query}"
-2. A batch of the user's structured data items with IDs and their content (notes, tags, categories, creator, URLs)
+2. A batch of the user's structured data items with IDs and their content (notes, tags, creator, URLs)
 
 Your task is to:
 - Filter out the relevant items from this batch based on the search request
-- Match items by analyzing their notes, tags, categories
+- Match items by analyzing their notes, tags
 - Sort the filtered items by relevance (most relevant first)
 - Return ONLY the filtered and sorted items from this batch
 
