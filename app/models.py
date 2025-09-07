@@ -27,6 +27,22 @@ class Item(Model):
 
     created_at = fields.DatetimeField(auto_now_add=True)
     updated_at = fields.DatetimeField(auto_now=True)
+    
+    embedding: fields.ReverseRelation["ItemEmbedding"]
 
     def __str__(self):
         return self.title
+
+class ItemEmbedding(Model):
+    id = fields.IntField(pk=True)
+    item: fields.OneToOneNullableRelation[Item] = fields.OneToOneField(
+        "models.Item", related_name="embedding", on_delete=fields.CASCADE
+    )
+    embedding = fields.JSONField()
+    model_version = fields.CharField(max_length=50)
+    dimension = fields.IntField()
+    created_at = fields.DatetimeField(auto_now_add=True)
+    updated_at = fields.DatetimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Embedding for Item {self.item_id}"

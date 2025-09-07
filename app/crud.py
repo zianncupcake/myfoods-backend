@@ -3,8 +3,9 @@ from typing import List, Optional
 from tortoise.exceptions import DoesNotExist, IntegrityError
 
 from .security import get_password_hash, verify_password
-from .models import User as UserModel, Item as ItemModel
+from .models import User as UserModel, Item as ItemModel, ItemEmbedding
 from .schemas import UserCreate, UserUpdate, ItemCreate, ItemUpdate
+from .services.embeddings import gemini_embedding_service
 
 log = logging.getLogger("uvicorn") 
 
@@ -71,6 +72,13 @@ async def delete_user(user_id: int) -> bool:
 
 async def create_item(item_data: ItemCreate) -> ItemModel:
     item_obj = await ItemModel.create(**item_data.model_dump())
+    
+    # Generate embedding for the new item
+    try:
+        await gemini_embedding_service.generate_item_embedding(item_obj)
+    except Exception as e:
+        log.error(f"Failed to generate embedding for new item {item_obj.id}: {str(e)}")
+    
     return item_obj
 
 async def get_item_by_id(item_id: int) -> Optional[UserModel]:
@@ -92,9 +100,21 @@ async def update_item(item_id: int, item_data: ItemUpdate, owner_id: int) -> Opt
         return None # Or raise an exception
 
     update_data = item_data.model_dump(exclude_unset=True)
+    
+    # Check if content-related fields are being updated
+    content_changed = any(key in ['notes', 'tags', 'creator'] for key in update_data.keys())
+    
     for key, value in update_data.items():
         setattr(item, key, value)
     await item.save()
+    
+    # Regenerate embedding if content changed
+    if content_changed:
+        try:
+            await gemini_embedding_service.generate_item_embedding(item)
+        except Exception as e:
+            log.error(f"Failed to regenerate embedding for updated item {item.id}: {str(e)}")
+    
     return item
 
 async def delete_item(item_id: int, owner_id: int) -> bool:

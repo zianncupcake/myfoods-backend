@@ -6,11 +6,12 @@ import asyncio
 
 from . import schemas, crud, security
 from .db import lifespan 
-from .worker.tasks import process_url_task 
+from .worker.tasks import process_url_task, generate_embeddings_for_existing_items
 from .worker.celery_app import celery 
 from celery.result import AsyncResult
 from .models import User as UserModel
 from .services.ai_search import gemini_search
+from .services.embeddings import gemini_embedding_service
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("uvicorn")
@@ -25,6 +26,7 @@ app = FastAPI(
 users_router = APIRouter(prefix="/users", tags=["Users"])
 items_router = APIRouter(prefix="/items", tags=["Items"])
 auth_router = APIRouter(prefix="/auth", tags=["Authentication"])
+admin_router = APIRouter(prefix="/admin", tags=["Admin"])
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token")
 
@@ -89,18 +91,56 @@ async def read_items_for_user(
         raise HTTPException(status_code=404, detail="User not found")
     
     items = await crud.get_user_items(user_id=user_id)
-
-    print(items)
     
     # If no query provided, return paginated items
     if not query:
         return items[offset:offset + limit]
     
-    # If query provided, perform AI search with pagination
+    # If query provided, perform vector search with pagination
     if not items:
         return []
         
     try:
+        query_embedding = await gemini_embedding_service.generate_query_embedding(query)
+        
+        if not query_embedding:
+            log.warning(f"Failed to generate query embedding for: {query}")
+            return items[offset:offset + limit]
+        
+        # Search items using embeddings (using default threshold from service)
+        scored_items = await gemini_embedding_service.search_items_by_embedding(
+            query_embedding=query_embedding,
+            user_items=items,
+            offset=offset,
+            limit=limit
+        )
+        
+        # Extract just the items from the scored results
+        filtered_items = [item for item, score in scored_items]
+        return filtered_items
+        
+    except Exception as e:
+        log.error(f"Vector search failed, returning paginated items: {str(e)}")
+        return items[offset:offset + limit]
+
+@users_router.post("/{user_id}/items/askgemini", response_model=List[schemas.Item])
+async def search_items_with_ai(
+    user_id: int,
+    query: str,
+    limit: int = 10
+):
+    db_user = await crud.get_user_by_id(user_id)
+    if db_user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Get all user items
+    items = await crud.get_user_items(user_id=user_id)
+    
+    if not items:
+        return []
+    
+    try:
+        # Use Gemini to search and rank items
         filtered_items = await gemini_search.search_items(
             query=query,
             items=items,
@@ -167,10 +207,36 @@ async def delete_existing_item(item_id: int):
     return None
 
 
+# --- Admin Endpoints ---
+@admin_router.post("/generate-embeddings", 
+                   response_model=schemas.TaskStatusResponse,
+                   summary="Generate embeddings for all items without embeddings")
+async def generate_embeddings_admin():
+    """
+    Trigger a background task to generate embeddings for all items that don't have embeddings yet.
+    This is useful for backfilling embeddings after the feature is deployed.
+    """
+    try:
+        task = generate_embeddings_for_existing_items.delay()
+        log.info(f"Embedding generation task queued: {task.id}")
+        
+        return {
+            "task_id": task.id,
+            "status": "PENDING",
+            "result": {"message": "Embedding generation task has been queued"}
+        }
+    except Exception as e:
+        log.error(f"Failed to queue embedding generation task: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to start embedding generation task"
+        )
+
 # --- Include Routers in the main app ---
 app.include_router(users_router)
 app.include_router(items_router)
 app.include_router(auth_router)
+app.include_router(admin_router)
 
 @app.get("/", tags=["General"])
 async def read_root():

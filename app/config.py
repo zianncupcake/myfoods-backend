@@ -11,12 +11,18 @@ class Settings(BaseSettings):
     database_url: str = os.getenv("DATABASE_URL", "sqlite://./test_local.db")
     redis_url: str = os.getenv("REDISCLOUD_URL", "redis://localhost:6379/0") 
 
-    secret_key: str = os.getenv("SECRET_KEY", "samplesecretkey")
-    access_token_expire_minutes: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "52560000"))
+    secret_key: str = os.getenv("SECRET_KEY")
+    access_token_expire_minutes: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES"))
     algorithm: str = "HS256" 
 
-    google_ai_api_key: str = os.getenv("GOOGLE_AI_API_KEY", "")
-    gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash-exp")
+    google_ai_api_key: str = os.getenv("GOOGLE_AI_API_KEY")
+    gemini_model: str = os.getenv("GEMINI_MODEL")
+    
+    # Embedding configuration
+    embedding_model: str = os.getenv("EMBEDDING_MODEL")
+    embedding_dimension: int = int(os.getenv("EMBEDDING_DIMENSION"))
+    similarity_threshold: float = float(os.getenv("SIMILARITY_THRESHOLD"))
+    embedding_batch_size: int = int(os.getenv("EMBEDDING_BATCH_SIZE"))
 
     r2_account_id: str = os.getenv("R2_ACCOUNT_ID")
     r2_access_key_id: str = os.getenv("R2_ACCESS_KEY_ID")

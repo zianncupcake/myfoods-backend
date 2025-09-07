@@ -406,6 +406,58 @@ async def _async_logic_for_task(source_url: str, task_id: str):
         "error": error_message 
     }
 
+async def _generate_embeddings_for_items():
+    """Async function to generate embeddings for items without embeddings."""
+    from ..models import Item as ItemModel, ItemEmbedding
+    from ..services.embeddings import gemini_embedding_service
+    from ..config import settings
+    from tortoise import Tortoise
+    
+    # Initialize Tortoise ORM for async context
+    await Tortoise.init(
+        db_url=settings.database_url,
+        modules={'models': ['app.models']}
+    )
+    
+    try:
+        # Get all items without embeddings
+        items_without_embeddings = []
+        all_items = await ItemModel.all()
+        
+        for item in all_items:
+            has_embedding = await ItemEmbedding.exists(item_id=item.id)
+            if not has_embedding:
+                items_without_embeddings.append(item)
+        
+        total_items = len(items_without_embeddings)
+        log.info(f"Found {total_items} items without embeddings")
+        
+        if total_items == 0:
+            return {"status": "SUCCESS", "message": "All items already have embeddings", "processed": 0}
+        
+        # Process in batches
+        successful_count = await gemini_embedding_service.bulk_generate_item_embeddings(
+            items_without_embeddings,
+            batch_size=settings.embedding_batch_size
+        )
+        
+        return {
+            "status": "SUCCESS",
+            "message": f"Generated embeddings for {successful_count}/{total_items} items",
+            "processed": successful_count,
+            "total": total_items
+        }
+        
+    except Exception as e:
+        log.error(f"Error generating embeddings: {str(e)}", exc_info=True)
+        return {
+            "status": "FAILURE",
+            "error": str(e),
+            "processed": 0
+        }
+    finally:
+        await Tortoise.close_connections()
+
 @celery.task(bind=True, max_retries=2, default_retry_delay=90) 
 def process_url_task(self, source_url: str): 
     """
@@ -434,4 +486,25 @@ def process_url_task(self, source_url: str):
     gc.collect()
     
     return final_result
+
+@celery.task(bind=True, name="generate_embeddings_for_existing_items")
+def generate_embeddings_for_existing_items(self):
+    """
+    Celery task to generate embeddings for all existing items that don't have embeddings.
+    This is used for backfilling embeddings after the feature is deployed.
+    """
+    task_id = self.request.id
+    log.info(f"[Task ID: {task_id}] Starting embedding generation for existing items")
+    
+    try:
+        result = asyncio.run(_generate_embeddings_for_items())
+        log.info(f"[Task ID: {task_id}] Embedding generation completed: {result}")
+        return result
+    except Exception as e:
+        log.error(f"[Task ID: {task_id}] Error in embedding generation task: {str(e)}", exc_info=True)
+        return {
+            "status": "FAILURE",
+            "error": str(e),
+            "processed": 0
+        }
 
